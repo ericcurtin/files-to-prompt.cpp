@@ -5,6 +5,11 @@
 #include <string>
 #include <vector>
 
+#define printe(...)                   \
+    do {                              \
+        fprintf(stderr, __VA_ARGS__); \
+    } while (0)
+
 namespace fs = std::filesystem;
 
 struct FileDeleter {
@@ -78,7 +83,7 @@ static std::string read_file_content(const std::string& path) {
     fread(&content[0], size, 1, file.get());
     return content;
   } else {
-    fprintf(stderr, "Warning: Skipping file %s due to error opening file\n",
+    printe("Warning: Skipping file %s due to error opening file\n",
             path.c_str());
     return "";
   }
@@ -184,7 +189,7 @@ int main(int argc, char** argv) {
 
   for (const auto& path : paths) {
     if (!fs::exists(path)) {
-      fprintf(stderr, "Path does not exist: %s\n", path.c_str());
+      printe("Path does not exist: %s\n", path.c_str());
       return 1;
     }
     if (!ignore_gitignore) {
