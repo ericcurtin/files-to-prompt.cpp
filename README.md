@@ -17,11 +17,11 @@ files-to-prompt.cpp [options]
 
 ### Options
 
-- `--extensions`: Specify file extensions to include (e.g., `.cpp`, `.h`).
-- `--include-hidden`: Include hidden files in the processing.
-- `--ignore-gitignore`: Ignore rules specified in `.gitignore` files.
-- `--output-file`: Specify an output file to save results.
-- `--claude-xml`: Output results in XML format.
+- `-e`: Specify file extensions to include (e.g., `.cpp`, `.h`).
+- `-H`: Include hidden files in the processing.
+- `-i`: Ignore rules specified in `.gitignore` files.
+- `-o`: Specify an output file to save results.
+- `-c`: Output results in XML format.
 
 ## Example
 
