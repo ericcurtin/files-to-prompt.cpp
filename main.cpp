@@ -19,7 +19,7 @@ struct FileDeleter {
 typedef std::unique_ptr<FILE, FileDeleter> FILE_ptr;
 
 static bool should_ignore(const std::string& path,
-                   const std::vector<std::string>& gitignore_rules) {
+                          const std::vector<std::string>& gitignore_rules) {
   for (const auto& rule : gitignore_rules) {
     if (fnmatch(rule.c_str(), fs::path(path).filename().c_str(), 0) == 0) {
       return true;
@@ -41,10 +41,11 @@ static std::vector<std::string> read_gitignore(const std::string& path) {
     char* line = nullptr;
     size_t len = 0;
     while (getline(&line, &len, file.get()) != -1) {
-      line[strcspn(line, "\r\n")] = 0;  // Remove any carriage returns and newlines
+      line[strcspn(line, "\r\n")] =
+          0;  // Remove any carriage returns and newlines
       if (strlen(line) > 0 && line[0] != '#') {
         rules.push_back(line);
-      } 
+      }
     }
     free(line);
   }
@@ -52,9 +53,9 @@ static std::vector<std::string> read_gitignore(const std::string& path) {
 }
 
 static void print_path(FILE* writer,
-                const std::string& path,
-                const std::string& content,
-                bool xml) {
+                       const std::string& path,
+                       const std::string& content,
+                       bool xml) {
   static int global_index = 1;
   if (xml) {
     fprintf(writer, "<document index=\"%d\">\n", global_index);
@@ -68,74 +69,98 @@ static void print_path(FILE* writer,
   }
 }
 
+static std::string read_file_content(const std::string& path) {
+  FILE_ptr file(fopen(path.c_str(), "r"));
+  if (file) {
+    fseek(file.get(), 0, SEEK_END);
+    size_t size = ftell(file.get());
+    rewind(file.get());
+    std::string content(size, ' ');
+    fread(&content[0], size, 1, file.get());
+    return content;
+  } else {
+    fprintf(stderr, "Warning: Skipping file %s due to error opening file\n",
+            path.c_str());
+    return "";
+  }
+}
+
+static bool should_ignore_file(const std::string& filename,
+                               const std::vector<std::string>& ignore_patterns,
+                               const std::vector<std::string>& extensions,
+                               bool include_hidden) {
+  if (!include_hidden && filename[0] == '.') {
+    return true;
+  }
+
+  for (const auto& pattern : ignore_patterns) {
+    if (fnmatch(pattern.c_str(), filename.c_str(), 0) == 0) {
+      return true;
+    }
+  }
+
+  if (!extensions.empty()) {
+    for (const auto& ext : extensions) {
+      if (filename.size() >= ext.size() &&
+          filename.compare(filename.size() - ext.size(), ext.size(), ext) ==
+              0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  return false;
+}
+
+static void process_file(const std::string& path,
+                         FILE* writer,
+                         bool claude_xml) {
+  std::string content = read_file_content(path);
+  if (!content.empty()) {
+    print_path(writer, path, content, claude_xml);
+  }
+}
+
+static void process_directory(const std::string& path,
+                              const std::vector<std::string>& extensions,
+                              bool include_hidden,
+                              bool ignore_gitignore,
+                              std::vector<std::string>& gitignore_rules,
+                              const std::vector<std::string>& ignore_patterns,
+                              FILE* writer,
+                              bool claude_xml) {
+  for (const auto& entry : fs::recursive_directory_iterator(path)) {
+    if (fs::is_directory(entry.status()))
+      continue;
+
+    std::string file_path = entry.path().string();
+    std::string filename = entry.path().filename().string();
+
+    if (should_ignore_file(filename, ignore_patterns, extensions,
+                           include_hidden))
+      continue;
+
+    if (!ignore_gitignore && should_ignore(file_path, gitignore_rules))
+      continue;
+
+    process_file(file_path, writer, claude_xml);
+  }
+}
+
 static void process_path(const std::string& path,
-                  const std::vector<std::string>& extensions,
-                  bool include_hidden,
-                  bool ignore_gitignore,
-                  std::vector<std::string>& gitignore_rules,
-                  const std::vector<std::string>& ignore_patterns,
-                  FILE* writer,
-                  bool claude_xml) {
+                         const std::vector<std::string>& extensions,
+                         bool include_hidden,
+                         bool ignore_gitignore,
+                         std::vector<std::string>& gitignore_rules,
+                         const std::vector<std::string>& ignore_patterns,
+                         FILE* writer,
+                         bool claude_xml) {
   if (fs::is_regular_file(path)) {
-    FILE_ptr file(fopen(path.c_str(), "r"));
-    if (file) {
-      fseek(file.get(), 0, SEEK_END);
-      size_t size = ftell(file.get());
-      rewind(file.get());
-      std::string content(size, ' ');
-      fread(&content[0], size, 1, file.get());
-      print_path(writer, path, content, claude_xml);
-    } else {
-      fprintf(stderr, "Warning: Skipping file %s due to error opening file\n",
-              path.c_str());
-    }
+    process_file(path, writer, claude_xml);
   } else if (fs::is_directory(path)) {
-    for (const auto& entry : fs::recursive_directory_iterator(path)) {
-      if (fs::is_directory(entry.status()))
-        continue;
-
-      std::string file_path = entry.path().string();
-      std::string filename = entry.path().filename().string();
-
-      if (!include_hidden && filename[0] == '.')
-        continue;
-      if (!ignore_gitignore && should_ignore(file_path, gitignore_rules))
-        continue;
-      bool ignore = false;
-      for (const auto& pattern : ignore_patterns) {
-        if (fnmatch(pattern.c_str(), filename.c_str(), 0) == 0) {
-          ignore = true;
-          break;
-        }
-      }
-      if (ignore)
-        continue;
-      if (!extensions.empty()) {
-        bool match = false;
-        for (const auto& ext : extensions) {
-          if (filename.size() >= ext.size() &&
-              filename.compare(filename.size() - ext.size(), ext.size(), ext) ==
-                  0) {
-            match = true;
-            break;
-          }
-        }
-        if (!match)
-          continue;
-      }
-      FILE_ptr file(fopen(file_path.c_str(), "r"));
-      if (file) {
-        fseek(file.get(), 0, SEEK_END);
-        size_t size = ftell(file.get());
-        rewind(file.get());
-        std::string content(size, ' ');
-        fread(&content[0], size, 1, file.get());
-        print_path(writer, file_path, content, claude_xml);
-      } else {
-        fprintf(stderr, "Warning: Skipping file %s due to error opening file\n",
-                file_path.c_str());
-      }
-    }
+    process_directory(path, extensions, include_hidden, ignore_gitignore,
+                      gitignore_rules, ignore_patterns, writer, claude_xml);
   }
 }
 
