@@ -23,6 +23,60 @@ struct FileDeleter {
 
 typedef std::unique_ptr<FILE, FileDeleter> FILE_ptr;
 
+class Opt {
+ public:
+  std::vector<std::string> paths;
+  std::vector<std::string> extensions;
+  std::vector<std::string> ignore_patterns;
+  bool include_hidden = false;
+  bool ignore_gitignore = false;
+  bool claude_xml = false;
+  std::string output_file;
+
+  int init(int argc, char** argv) { return parse(argc, argv); }
+
+ private:
+  int parse(int argc, char** argv) {
+    int opt;
+    while ((opt = getopt(argc, argv, "e:i:o:cH")) != -1) {
+      switch (opt) {
+        case 'e':
+          extensions.push_back(optarg);
+          break;
+        case 'i':
+          ignore_patterns.push_back(optarg);
+          break;
+        case 'o':
+          output_file = optarg;
+          break;
+        case 'c':
+          claude_xml = true;
+          break;
+        case 'H':
+          include_hidden = true;
+          break;
+        default:
+          fprintf(
+              stderr,
+              "Usage: %s [-e extension] [-i ignore_pattern] [-o output_file] "
+              "[-c] [-H] [paths...]\n",
+              argv[0]);
+          return 1;
+      }
+    }
+
+    for (int i = optind; i < argc; i++) {
+      paths.push_back(argv[i]);
+    }
+
+    if (paths.empty()) {
+      paths.push_back(".");
+    }
+
+    return 0;
+  }
+};
+
 static bool should_ignore(const std::string& path,
                           const std::vector<std::string>& gitignore_rules) {
   for (const auto& rule : gitignore_rules) {
@@ -169,74 +223,35 @@ static void process_path(const std::string& path,
 }
 
 int main(int argc, char** argv) {
-  // Command-line options
-  std::vector<std::string> paths;
-  std::vector<std::string> extensions;
-  std::vector<std::string> ignore_patterns;
-  bool include_hidden = false;
-  bool ignore_gitignore = false;
-  bool claude_xml = false;
-  std::string output_file;
-
-  int opt;
-  while ((opt = getopt(argc, argv, "e:i:o:cH")) != -1) {
-    switch (opt) {
-      case 'e':
-        extensions.push_back(optarg);
-        break;
-      case 'i':
-        ignore_patterns.push_back(optarg);
-        break;
-      case 'o':
-        output_file = optarg;
-        break;
-      case 'c':
-        claude_xml = true;
-        break;
-      case 'H':
-        include_hidden = true;
-        break;
-      default:
-        fprintf(stderr,
-                "Usage: %s [-e extension] [-i ignore_pattern] [-o output_file] "
-                "[-c] [-H] [paths...]\n",
-                argv[0]);
-        return 1;
-    }
-  }
-
-  for (int i = optind; i < argc; i++) {
-    paths.push_back(argv[i]);
-  }
-
-  if (paths.empty()) {
-    paths.push_back(".");
+  Opt opt;
+  if (opt.init(argc, argv)) {
+    return 1;
   }
 
   std::vector<std::string> gitignore_rules;
   FILE* writer = stdout;
   FILE_ptr file_out;
-  if (!output_file.empty()) {
-    file_out.reset(fopen(output_file.c_str(), "w"));
+  if (!opt.output_file.empty()) {
+    file_out.reset(fopen(opt.output_file.c_str(), "w"));
     writer = file_out.get();
   }
 
-  for (const auto& path : paths) {
+  for (const auto& path : opt.paths) {
     if (!fs::exists(path)) {
       printe("Path does not exist: %s\n", path.c_str());
       return 1;
     }
-    if (!ignore_gitignore) {
+    if (!opt.ignore_gitignore) {
       auto rules = read_gitignore(fs::path(path).parent_path().string());
       gitignore_rules.insert(gitignore_rules.end(), rules.begin(), rules.end());
     }
-    if (claude_xml && path == paths[0]) {
+    if (opt.claude_xml && path == opt.paths[0]) {
       fprintf(writer, "<documents>\n");
     }
-    process_path(path, extensions, include_hidden, ignore_gitignore,
-                 gitignore_rules, ignore_patterns, writer, claude_xml);
+    process_path(path, opt.extensions, opt.include_hidden, opt.ignore_gitignore,
+                 gitignore_rules, opt.ignore_patterns, writer, opt.claude_xml);
   }
-  if (claude_xml) {
+  if (opt.claude_xml) {
     fprintf(writer, "</documents>\n");
   }
 
