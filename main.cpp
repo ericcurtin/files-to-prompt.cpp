@@ -8,9 +8,17 @@
 
 namespace fs = std::filesystem;
 
-int global_index = 1;
+struct FileDeleter {
+  void operator()(FILE* file) const {
+    if (file) {
+      fclose(file);
+    }
+  }
+};
 
-bool should_ignore(const std::string& path,
+typedef std::unique_ptr<FILE, FileDeleter> FILE_ptr;
+
+static bool should_ignore(const std::string& path,
                    const std::vector<std::string>& gitignore_rules) {
   for (const auto& rule : gitignore_rules) {
     if (fnmatch(rule.c_str(), fs::path(path).filename().c_str(), 0) == 0) {
@@ -25,30 +33,29 @@ bool should_ignore(const std::string& path,
   return false;
 }
 
-std::vector<std::string> read_gitignore(const std::string& path) {
+static std::vector<std::string> read_gitignore(const std::string& path) {
   std::vector<std::string> rules;
   std::string gitignore_path = path + "/.gitignore";
-  FILE* file = fopen(gitignore_path.c_str(), "r");
+  FILE_ptr file(fopen(gitignore_path.c_str(), "r"));
   if (file) {
     char* line = nullptr;
     size_t len = 0;
-    while (getline(&line, &len, file) != -1) {
-      line[strcspn(line, "\r\n")] =
-          0;  // Remove any carriage returns and newlines
+    while (getline(&line, &len, file.get()) != -1) {
+      line[strcspn(line, "\r\n")] = 0;  // Remove any carriage returns and newlines
       if (strlen(line) > 0 && line[0] != '#') {
         rules.push_back(line);
-      }
+      } 
     }
     free(line);
-    fclose(file);
   }
   return rules;
 }
 
-void print_path(FILE* writer,
+static void print_path(FILE* writer,
                 const std::string& path,
                 const std::string& content,
                 bool xml) {
+  static int global_index = 1;
   if (xml) {
     fprintf(writer, "<document index=\"%d\">\n", global_index);
     fprintf(writer, "<source>%s</source>\n", path.c_str());
@@ -61,7 +68,7 @@ void print_path(FILE* writer,
   }
 }
 
-void process_path(const std::string& path,
+static void process_path(const std::string& path,
                   const std::vector<std::string>& extensions,
                   bool include_hidden,
                   bool ignore_gitignore,
@@ -70,17 +77,14 @@ void process_path(const std::string& path,
                   FILE* writer,
                   bool claude_xml) {
   if (fs::is_regular_file(path)) {
-    FILE* file = fopen(path.c_str(), "r");
+    FILE_ptr file(fopen(path.c_str(), "r"));
     if (file) {
-      fseek(file, 0, SEEK_END);
-      size_t size = ftell(file);
-      rewind(file);
-      char* content = (char*)malloc(size + 1);
-      fread(content, size, 1, file);
-      content[size] = '\0';
+      fseek(file.get(), 0, SEEK_END);
+      size_t size = ftell(file.get());
+      rewind(file.get());
+      std::string content(size, ' ');
+      fread(&content[0], size, 1, file.get());
       print_path(writer, path, content, claude_xml);
-      free(content);
-      fclose(file);
     } else {
       fprintf(stderr, "Warning: Skipping file %s due to error opening file\n",
               path.c_str());
@@ -119,17 +123,14 @@ void process_path(const std::string& path,
         if (!match)
           continue;
       }
-      FILE* file = fopen(file_path.c_str(), "r");
+      FILE_ptr file(fopen(file_path.c_str(), "r"));
       if (file) {
-        fseek(file, 0, SEEK_END);
-        size_t size = ftell(file);
-        rewind(file);
-        char* content = (char*)malloc(size + 1);
-        fread(content, size, 1, file);
-        content[size] = '\0';
+        fseek(file.get(), 0, SEEK_END);
+        size_t size = ftell(file.get());
+        rewind(file.get());
+        std::string content(size, ' ');
+        fread(&content[0], size, 1, file.get());
         print_path(writer, file_path, content, claude_xml);
-        free(content);
-        fclose(file);
       } else {
         fprintf(stderr, "Warning: Skipping file %s due to error opening file\n",
                 file_path.c_str());
@@ -151,11 +152,10 @@ int main(int argc, char** argv) {
 
   std::vector<std::string> gitignore_rules;
   FILE* writer = stdout;
-  FILE* file_out = nullptr;
-
+  FILE_ptr file_out;
   if (!output_file.empty()) {
-    file_out = fopen(output_file.c_str(), "w");
-    writer = file_out;
+    file_out.reset(fopen(output_file.c_str(), "w"));
+    writer = file_out.get();
   }
 
   for (const auto& path : paths) {
@@ -175,10 +175,6 @@ int main(int argc, char** argv) {
   }
   if (claude_xml) {
     fprintf(writer, "</documents>\n");
-  }
-
-  if (file_out) {
-    fclose(file_out);
   }
 
   return 0;
