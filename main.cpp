@@ -1,4 +1,5 @@
 #include <fnmatch.h>
+#include <unistd.h>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -84,7 +85,7 @@ static std::string read_file_content(const std::string& path) {
     return content;
   } else {
     printe("Warning: Skipping file %s due to error opening file\n",
-            path.c_str());
+           path.c_str());
     return "";
   }
 }
@@ -144,7 +145,6 @@ static void process_directory(const std::string& path,
     if (should_ignore_file(filename, ignore_patterns, extensions,
                            include_hidden))
       continue;
-
     if (!ignore_gitignore && should_ignore(file_path, gitignore_rules))
       continue;
 
@@ -169,15 +169,49 @@ static void process_path(const std::string& path,
 }
 
 int main(int argc, char** argv) {
-  // Parsing command-line arguments would be needed here, similar to click in
-  // Python This is a simplified version for the sake of conversion
-  std::vector<std::string> paths = {"."};                // Example paths
-  std::vector<std::string> extensions = {".cpp", ".h"};  // Example extensions
+  // Command-line options
+  std::vector<std::string> paths;
+  std::vector<std::string> extensions;
+  std::vector<std::string> ignore_patterns;
   bool include_hidden = false;
   bool ignore_gitignore = false;
-  std::vector<std::string> ignore_patterns;
   bool claude_xml = false;
   std::string output_file;
+
+  int opt;
+  while ((opt = getopt(argc, argv, "e:i:o:cH")) != -1) {
+    switch (opt) {
+      case 'e':
+        extensions.push_back(optarg);
+        break;
+      case 'i':
+        ignore_patterns.push_back(optarg);
+        break;
+      case 'o':
+        output_file = optarg;
+        break;
+      case 'c':
+        claude_xml = true;
+        break;
+      case 'H':
+        include_hidden = true;
+        break;
+      default:
+        fprintf(stderr,
+                "Usage: %s [-e extension] [-i ignore_pattern] [-o output_file] "
+                "[-c] [-H] [paths...]\n",
+                argv[0]);
+        return 1;
+    }
+  }
+
+  for (int i = optind; i < argc; i++) {
+    paths.push_back(argv[i]);
+  }
+
+  if (paths.empty()) {
+    paths.push_back(".");
+  }
 
   std::vector<std::string> gitignore_rules;
   FILE* writer = stdout;
