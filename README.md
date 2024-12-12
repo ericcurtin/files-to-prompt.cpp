@@ -28,7 +28,7 @@ files-to-prompt.cpp [options]
 To process all `.cpp` and `.h` files in the current directory, including hidden files, and output the results in XML format:
 
 ```sh
-files-to-prompt.cpp --extensions .cpp .h --include-hidden --claude-xml
+files-to-prompt.cpp -e .cpp -e .h -i -c
 ```
 
 ## Contributing

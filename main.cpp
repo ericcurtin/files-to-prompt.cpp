@@ -39,13 +39,13 @@ class Opt {
  private:
   int parse(int argc, char** argv) {
     int opt;
-    while ((opt = getopt(argc, argv, "e:i:o:cH")) != -1) {
+    while ((opt = getopt(argc, argv, "e:o:ciH")) != -1) {
       switch (opt) {
         case 'e':
           extensions.push_back(optarg);
           break;
         case 'i':
-          ignore_patterns.push_back(optarg);
+          ignore_gitignore = true;
           break;
         case 'o':
           output_file = optarg;
@@ -231,10 +231,10 @@ static void process_directory(const std::string& path,
 
     std::string file_path = entry.path().string();
     std::string filename = entry.path().filename().string();
-
     if (should_ignore_file(filename, ignore_patterns, extensions,
                            include_hidden))
       continue;
+
     if (!ignore_gitignore && should_ignore(file_path, gitignore_rules))
       continue;
 
