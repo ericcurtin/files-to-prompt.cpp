@@ -1,5 +1,6 @@
 #include <fnmatch.h>
 #include <unistd.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -92,21 +93,56 @@ static bool should_ignore(const std::string& path,
   return false;
 }
 
+static ssize_t getdelim(std::string& lineptr, int delimiter, FILE* fp) {
+  ssize_t cur_len = 0;
+
+  if (fp == nullptr)
+    return -1;
+  if (ferror(fp))
+    return -1;
+
+  lineptr.clear();
+  std::vector<char> buffer(120);
+
+  while (true) {
+    if (fgets(buffer.data(), buffer.size(), fp) == nullptr) {
+      if (feof(fp))
+        break;
+      return -1;
+    }
+
+    char* pos = strchr(buffer.data(), delimiter);
+    if (pos != nullptr) {
+      *pos = delimiter;
+      lineptr.append(buffer.data(), pos - buffer.data() + 1);
+      cur_len += pos - buffer.data() + 1;
+      break;
+    } else {
+      lineptr.append(buffer.data());
+      cur_len += buffer.size() - 1;
+    }
+  }
+
+  return cur_len > 0 ? cur_len : -1;
+}
+
+static ssize_t getline(std::string& lineptr, FILE* stream) {
+  return getdelim(lineptr, '\n', stream);
+}
+
 static std::vector<std::string> read_gitignore(const std::string& path) {
   std::vector<std::string> rules;
   std::string gitignore_path = path + "/.gitignore";
   FILE_ptr file(fopen(gitignore_path.c_str(), "r"));
   if (file) {
-    char* line = nullptr;
-    size_t len = 0;
-    while (getline(&line, &len, file.get()) != -1) {
-      line[strcspn(line, "\r\n")] =
-          0;  // Remove any carriage returns and newlines
-      if (strlen(line) > 0 && line[0] != '#') {
+    std::string line;
+    while (getline(line, file.get()) != -1) {
+      line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
+      line.erase(std::remove(line.begin(), line.end(), '\n'), line.end());
+      if (line.size() > 0 && line[0] != '#') {
         rules.push_back(line);
       }
     }
-    free(line);
   }
   return rules;
 }
